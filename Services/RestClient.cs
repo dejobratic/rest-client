@@ -21,21 +21,22 @@ namespace RestClient.Services
                 throw new ArgumentNullException(nameof(clientFactory));
         }
 
-        public async Task Send(RestRequest request)
+        public async Task<RestResponse> Send(RestRequest request)
         {
             HttpRequestMessage httpRequest = await CreateHttpRequest(request);
-            await Send(httpRequest);
+            HttpResponseMessage httpResponse = await Send(httpRequest);
+            return ResolveResponse(httpResponse);
         }
 
-        public async Task<TOut> Send<TOut>(
+        public async Task<RestResponse<TOut>> Send<TOut>(
             RestRequest request)
         {
             HttpRequestMessage httpRequest = await CreateHttpRequest(request);
             HttpResponseMessage httpResponse = await Send(httpRequest);
-            return await Resolve<TOut>(httpResponse);
+            return await ResolveResponse<TOut>(httpResponse);
         }
 
-        private async Task<HttpRequestMessage> CreateHttpRequest(
+        private static async Task<HttpRequestMessage> CreateHttpRequest(
             RestRequest request)
         {
             HttpRequestMessage httpRequest = CreateBaseHttpRequest(request);
@@ -92,21 +93,35 @@ namespace RestClient.Services
             HttpRequestMessage httpRequest)
         {
             HttpClient client = _clientFactory.CreateClient();
-            HttpResponseMessage httpResponse = await client.SendAsync(httpRequest);
-
-            if (httpResponse.IsSuccessStatusCode)
-                return httpResponse;
-
-            throw new Exception($"Error sending request from HTTP service. Reason: {httpResponse.ReasonPhrase}.");
+            return await client.SendAsync(httpRequest);
         }
 
-        private static async Task<TOut> Resolve<TOut>(
+        private static RestResponse ResolveResponse(
             HttpResponseMessage response)
         {
-            using Stream stream = await response.Content.ReadAsStreamAsync();
-            if (stream.Length == 0) return default;
+            return new RestResponse(
+                response.IsSuccessStatusCode,
+                response.StatusCode.ToString(),
+                response.ReasonPhrase);
+        }
 
-            return await stream.ToObject<TOut>();
+        private static async Task<RestResponse<TOut>> ResolveResponse<TOut>(
+            HttpResponseMessage response)
+        {
+            return new RestResponse<TOut>(
+                response.IsSuccessStatusCode,
+                response.StatusCode.ToString(),
+                response.ReasonPhrase,
+                await ResolveResponseContent<TOut>(response.Content));
+        }
+
+        private static async Task<TOut> ResolveResponseContent<TOut>(
+            HttpContent content)
+        {
+            using Stream contentStream = await content.ReadAsStreamAsync();
+            if (contentStream.Length == 0) return default;
+
+            return await contentStream.ToObject<TOut>();
         }
     }
 }
